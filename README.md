@@ -4,13 +4,19 @@
 ```
 chmod +x NtsScan
 ```
+## Tutorial
+./NtsScan -h
+usage: NtsScan [-h] -d DOMAIN [-o OUTPUT] [-f {text,json}] [--threads THREADS] [--timeout TIMEOUT] [--silent] [--version]
 
-## Run
-```
-./NtsScan -d example.com
-```
+NtsScan - Passive subdomain enumerator || NTSTeam
 
-## Output to file
-```
-./NtsScan -d example.com -o result.txt
-```
+options:
+  -h, --help            show this help message and exit
+  -d, --domain DOMAIN   Target domain (example: example.com)
+  -o, --output OUTPUT   Output file path (default: <domain>_subs.txt)
+  -f, --format {text,json}
+                        Output format
+  --threads THREADS     Concurrent provider queries
+  --timeout TIMEOUT     HTTP timeout in seconds
+  --silent              Silent mode
+  --version             Show version and exit
