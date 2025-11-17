@@ -9,7 +9,6 @@ chmod +x NtsScan
 usage: NtsScan [-h] -d DOMAIN [-o OUTPUT] [-f {text,json}] [--threads THREADS] [--timeout TIMEOUT] [--silent] [--version]
 
 NtsScan - Passive subdomain enumerator || NTSTeam
-<br>
 options:
   -h, --help            show this help message and exit
   -d, --domain DOMAIN   Target domain (example: example.com)
