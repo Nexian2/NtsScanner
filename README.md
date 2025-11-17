@@ -1,4 +1,4 @@
-# NtsScan - Subdomain Enumerator (No API Keys)
+# NtsScan 
 
 ## Install
 ```
