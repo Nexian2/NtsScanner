@@ -19,7 +19,7 @@ BANNER = r"""
 ██║ ╚████║   ██║   ███████╗███████║╚██████╔╝██║  ██║██║ ╚████║
 ╚═╝  ╚═══╝   ╚═╝   ╚══════╝╚══════╝ ╚═════╝ ╚═╝  ╚═╝╚═╝  ╚═══╝
 
-             NtsScan - Passive Recon & Subdomain Enumerator
+             NtsScan - Passive Recon & Subdomain Enumerator || Build By NTSTeam
 """
 def norm_domain(d):
     if d.startswith("http://") or d.startswith("https://"):
