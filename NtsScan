@@ -1,0 +1,68 @@
+#!/usr/bin/env python3
+# NtsScan - Subdomain Enumerator (No API Keys)
+
+import argparse, requests, json
+
+def fetch_crtsh(domain):
+    try:
+        r = requests.get(f"https://crt.sh/?q=%25.{domain}&output=json", timeout=8)
+        return list(set([x["name_value"] for x in r.json()]))
+    except:
+        return []
+
+def fetch_bufferover(domain):
+    try:
+        r = requests.get(f"https://dns.bufferover.run/dns?q=.{domain}", timeout=8)
+        j = r.json()
+        return [x.split(',')[-1] for x in j.get("FDNS_A", [])]
+    except:
+        return []
+
+def fetch_threatcrowd(domain):
+    try:
+        r = requests.get(f"https://www.threatcrowd.org/searchApi/v2/domain/report/?domain={domain}", timeout=8)
+        return r.json().get("subdomains", [])
+    except:
+        return []
+
+def fetch_riddler(domain):
+    try:
+        r = requests.get(f"https://riddler.io/search/exportcsv?q=pld:{domain}", timeout=8)
+        lines = r.text.splitlines()
+        out = []
+        for ln in lines:
+            parts = ln.split(',')
+            if len(parts) > 4:
+                host = parts[4].replace('"','')
+                if domain in host:
+                    out.append(host)
+        return out
+    except:
+        return []
+
+def run(domain):
+    out = set()
+    for fn in [fetch_crtsh, fetch_bufferover, fetch_threatcrowd, fetch_riddler]:
+        for x in fn(domain):
+            if domain in x:
+                out.add(x.strip())
+    return sorted(out)
+
+def main():
+    p = argparse.ArgumentParser()
+    p.add_argument("-d","--domain",required=True)
+    p.add_argument("-o","--output")
+    args = p.parse_args()
+
+    res = run(args.domain)
+
+    for x in res:
+        print(x)
+
+    if args.output:
+        with open(args.output,"w") as f:
+            f.write("
+".join(res))
+
+if __name__ == "__main__":
+    main()
