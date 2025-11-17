@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# NtsScan - Subdomain Enumerator (No API Keys)
+# NtsScan - Subdomain Enumerator || Build By NTSTeam
 # Corrected version
 
 import argparse
