@@ -1,68 +1,197 @@
 #!/usr/bin/env python3
 # NtsScan - Subdomain Enumerator (No API Keys)
+# Corrected version
 
-import argparse, requests, json
+import argparse
+import requests
+import json
+import sys
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from urllib.parse import urlparse
 
-def fetch_crtsh(domain):
+VERSION = "1.0"
+
+BANNER = r"""
+ _   _       _    _____                     
+| \ | |_   _| |_ / ____|                    
+|  \| | | | | __| (___   ___ __ _ _ __ ___  
+| . ` | | | | __|\___ \ / __/ _` | '_ ` _ \ 
+| |\  | |_| | |_ ____) | (_| (_| | | | | | |
+|_| \_|\__,_|\__|_____/ \___\__,_|_| |_| |_|
+                                            
+NtsScan - Passive subdomain enumerator (no API keys)
+"""
+
+def norm_domain(d):
+    if d.startswith("http://") or d.startswith("https://"):
+        return urlparse(d).netloc
+    return d.strip().rstrip(".")
+
+def provider_crtsh(domain, timeout=8):
+    subs = set()
     try:
-        r = requests.get(f"https://crt.sh/?q=%25.{domain}&output=json", timeout=8)
-        return list(set([x["name_value"] for x in r.json()]))
-    except:
-        return []
+        url = f"https://crt.sh/?q=%25.{domain}&output=json"
+        r = requests.get(url, timeout=timeout)
+        if r.status_code == 200:
+            data = r.json()
+            if isinstance(data, list):
+                for item in data:
+                    name = item.get("name_value")
+                    if name:
+                        for line in str(name).splitlines():
+                            line = line.strip()
+                            if line.endswith("."):
+                                line = line[:-1]
+                            if line:
+                                subs.add(line.lower())
+    except Exception:
+        pass
+    return subs
 
-def fetch_bufferover(domain):
+def provider_bufferover(domain, timeout=8):
+    subs = set()
     try:
-        r = requests.get(f"https://dns.bufferover.run/dns?q=.{domain}", timeout=8)
-        j = r.json()
-        return [x.split(',')[-1] for x in j.get("FDNS_A", [])]
-    except:
-        return []
+        url = f"https://dns.bufferover.run/dns?q=.{domain}"
+        r = requests.get(url, timeout=timeout)
+        if r.status_code == 200:
+            data = r.json()
+            for k in ("FDNS_A", "RDNS", "Result"):
+                if k in data and data[k]:
+                    for entry in data[k]:
+                        if isinstance(entry, str):
+                            if "," in entry:
+                                host = entry.split(",")[-1].strip()
+                            else:
+                                host = entry.strip()
+                            if host.endswith("."):
+                                host = host[:-1]
+                            if host:
+                                subs.add(host.lower())
+    except Exception:
+        pass
+    return subs
 
-def fetch_threatcrowd(domain):
+def provider_threatcrowd(domain, timeout=8):
+    subs = set()
     try:
-        r = requests.get(f"https://www.threatcrowd.org/searchApi/v2/domain/report/?domain={domain}", timeout=8)
-        return r.json().get("subdomains", [])
-    except:
-        return []
+        url = f"https://www.threatcrowd.org/searchApi/v2/domain/report/?domain={domain}"
+        r = requests.get(url, timeout=timeout)
+        if r.status_code == 200:
+            data = r.json()
+            for s in data.get("subdomains", []):
+                if s:
+                    subs.add(s.lower())
+    except Exception:
+        pass
+    return subs
 
-def fetch_riddler(domain):
+def provider_certspotter(domain, timeout=8):
+    subs = set()
     try:
-        r = requests.get(f"https://riddler.io/search/exportcsv?q=pld:{domain}", timeout=8)
-        lines = r.text.splitlines()
-        out = []
-        for ln in lines:
-            parts = ln.split(',')
-            if len(parts) > 4:
-                host = parts[4].replace('"','')
-                if domain in host:
-                    out.append(host)
-        return out
-    except:
-        return []
+        url = ("https://api.certspotter.com/v1/issuances"
+               f"?domain={domain}&include_subdomains=true&expand=dns_names")
+        r = requests.get(url, timeout=timeout)
+        if r.status_code == 200:
+            data = r.json()
+            for item in data:
+                dns_names = item.get("dns_names", []) or []
+                for name in dns_names:
+                    name = name.strip()
+                    if name.endswith("."):
+                        name = name[:-1]
+                    if name:
+                        subs.add(name.lower())
+    except Exception:
+        pass
+    return subs
 
-def run(domain):
-    out = set()
-    for fn in [fetch_crtsh, fetch_bufferover, fetch_threatcrowd, fetch_riddler]:
-        for x in fn(domain):
-            if domain in x:
-                out.add(x.strip())
-    return sorted(out)
+PROVIDERS = [
+    ("crt.sh", provider_crtsh),
+    ("bufferover", provider_bufferover),
+    ("threatcrowd", provider_threatcrowd),
+    ("certspotter", provider_certspotter),
+]
+
+def gather(domain, threads=4, timeout=8, silent=False):
+    results = set()
+    details = {}
+    with ThreadPoolExecutor(max_workers=min(len(PROVIDERS), threads)) as ex:
+        future_map = {ex.submit(fn, domain, timeout): name for name, fn in PROVIDERS}
+        for fut in as_completed(future_map):
+            name = future_map[fut]
+            try:
+                res = fut.result()
+                details[name] = {"count": len(res)}
+                results.update(res)
+                if not silent:
+                    print(f"[+] {name}: found {len(res)}")
+            except Exception as e:
+                details[name] = {"error": str(e)}
+                if not silent:
+                    print(f"[-] {name}: error {e}")
+    return results, details
+
+def save_output(outpath, subs, fmt="text"):
+    subs_list = sorted(subs)
+    if fmt == "json":
+        payload = {
+            "generated_by": "NtsScan",
+            "version": VERSION,
+            "count": len(subs_list),
+            "subdomains": subs_list
+        }
+        with open(outpath, "w", encoding="utf-8") as f:
+            json.dump(payload, f, indent=2)
+    else:
+        with open(outpath, "w", encoding="utf-8") as f:
+            for s in subs_list:
+                f.write(s + "\n")
 
 def main():
-    p = argparse.ArgumentParser()
-    p.add_argument("-d","--domain",required=True)
-    p.add_argument("-o","--output")
-    args = p.parse_args()
+    parser = argparse.ArgumentParser(prog="NtsScan", description="NtsScan - Passive subdomain enumerator (no API keys)")
+    parser.add_argument("-d", "--domain", required=True, help="Target domain (example: example.com)")
+    parser.add_argument("-o", "--output", help="Output file path (default: <domain>_subs.txt)")
+    parser.add_argument("-f", "--format", choices=["text", "json"], default="text", help="Output format")
+    parser.add_argument("--threads", type=int, default=4, help="Concurrent provider queries")
+    parser.add_argument("--timeout", type=int, default=8, help="HTTP timeout in seconds")
+    parser.add_argument("--silent", action="store_true", help="Silent mode")
+    parser.add_argument("--version", action="store_true", help="Show version and exit")
+    args = parser.parse_args()
 
-    res = run(args.domain)
+    if args.version:
+        print("NtsScan", VERSION)
+        sys.exit(0)
 
-    for x in res:
-        print(x)
+    domain = norm_domain(args.domain)
+    if not domain:
+        print("Invalid domain")
+        sys.exit(1)
 
-    if args.output:
-        with open(args.output,"w") as f:
-            f.write("
-".join(res))
+    if not args.output:
+        args.output = f"{domain}_subs.{'json' if args.format=='json' else 'txt'}"
+
+    if not args.silent:
+        print(BANNER)
+        print(f"[+] Starting passive enumeration for: {domain}")
+
+    subs, details = gather(domain, threads=args.threads, timeout=args.timeout, silent=args.silent)
+
+    # keep only results that end with the domain
+    final = set()
+    for s in subs:
+        if not s:
+            continue
+        s = s.strip().lower()
+        if s.endswith(domain):
+            final.add(s)
+
+    if not args.silent:
+        print(f"[+] Found {len(final)} unique subdomains")
+
+    save_output(args.output, final, fmt=args.format)
+
+    if not args.silent:
+        print(f"[+] Saved to {args.output}")
 
 if __name__ == "__main__":
     main()
